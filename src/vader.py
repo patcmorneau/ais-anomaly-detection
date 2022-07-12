@@ -35,6 +35,7 @@ import mysql.connector
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
+from sklearn.ensemble import IsolationForest
 
 def curve(x, a, b, c):
 	return a*np.log(x + b)+c
@@ -114,16 +115,17 @@ def get_trajectories(lat, lon, speed):
 		trajectoryLat = lat[start:index]
 		trajectoryLon = lon[start:index]
 		speedTrajectory = speed[start:index]
-		lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
-		rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
-		
-		while(rmse < 0.00009 and index < len(lat)-1):
-			index = index +1
-			trajectoryLat.append(lat[index])
-			trajectoryLon.append(lon[index])
-			speedTrajectory.append(speed[index])
+		if len(trajectoryLat) > 5:
 			lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
 			rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
+		
+			while(rmse < 0.00009 and index < len(lat)-1):
+				index = index +1
+				trajectoryLat.append(lat[index])
+				trajectoryLon.append(lon[index])
+				speedTrajectory.append(speed[index])
+				lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
+				rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
 
 		trajectories.append([trajectoryLat, trajectoryLon, speedTrajectory])
 		start = index + 1
@@ -178,10 +180,11 @@ vessels = build_vessels_data(allCleanData)
 # print(len(vessels))
 # print(vessels.keys())
 # print(len(vessels[list(vessels.keys())[8]]))
-
-lat, lon, speed = get_lat_lon_speed(vessels[316022934])
+"""
+lat, lon, speed = get_lat_lon_speed(vessels[232027158]) # 316022934
 trajectories = get_trajectories(lat, lon, speed)
 trajectoriesStartPosition, vectors, avgSpeeds = compute_features(trajectories)
+"""
 #write_trajectory(trajectories[0], 'test.txt')
 """
 for i in range(len(trajectories)):
@@ -192,4 +195,50 @@ for i in range(len(trajectories)):
 #plt.plot(np.array(trajectoryLat), line(np.array(trajectoryLat), *lopt))
 #plt.scatter(trajectoryLat, trajectoryLon)
 #plt.show()
+
+features = []
+for vessel in vessels:
+	if len(vessels[vessel]) > 5:
+		lat, lon, speed = get_lat_lon_speed(vessels[vessel])
+		trajectories = get_trajectories(lat, lon, speed)
+		trajectoriesStartPosition, vectors, avgSpeeds = compute_features(trajectories)
+		for i in range(len(vectors)):
+			features.append([trajectoriesStartPosition[i][0],trajectoriesStartPosition[i][1], vectors[i][0],vectors[i][1], avgSpeeds[i]])
+
+#print(len(features))
+
+
+
+clf = IsolationForest()
+clf.fit(np.array(features))
+preds = clf.predict(np.array(features))
+
+valids = []
+anomalies = []
+for i in range(len(features)):
+	if preds[i] == 1:
+		valids.append(features[i])
+	elif preds[i] == -1:
+		anomalies.append(features[i])
+
+#write_points_2_file(valids, "valid.txt")
+#write_points_2_file(anomalies, "anomalies.txt")
+
+
+validXs = []
+validYs = []
+for point in valids:
+	validXs.append(point[1])
+	validYs.append(point[0])
+
+anomalieXs = []
+anomalieYs = []
+for point in anomalies:
+	anomalieXs.append(point[1])
+	anomalieYs.append(point[0])
+
+
+plt.scatter(validXs, validYs, c="green")
+plt.scatter(anomalieXs, anomalieYs, c="red")
+plt.show()
 
