@@ -37,7 +37,6 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 def curve(x, a, b, c):
-	#print(x, b)
 	return a*np.log(x + b)+c
 
 
@@ -48,19 +47,17 @@ def line(x, a, b, c):
 def calculate_curve_rmse(x, y, fittedParam):
 	modelPredictions = curve(x, *fittedParam) 
 	absError = modelPredictions - y
-	SE = np.square(absError) # squared errors
-	MSE = np.mean(SE) # mean squared errors
-	return np.sqrt(MSE) # Root Mean Squared Error, RMSE
-	#print('RMSE:', RMSE)
+	SE = np.square(absError)
+	MSE = np.mean(SE) 
+	return np.sqrt(MSE)
 
 
 def calculate_line_rmse(x, y, fittedParam):
 	modelPredictions = line(x, *fittedParam) 
 	absError = modelPredictions - y
-	SE = np.square(absError) # squared errors
-	MSE = np.mean(SE) # mean squared errors
-	return np.sqrt(MSE) # Root Mean Squared Error, RMSE
-	#print('RMSE:', RMSE)
+	SE = np.square(absError) 
+	MSE = np.mean(SE)
+	return np.sqrt(MSE)
 
 
 def vessel_exist(vessels, vessel):
@@ -97,13 +94,69 @@ def get_coordinates(vesselData):
 	return coordinates
 
 	
-def get_lat_lon(vesselData):
+def get_lat_lon_speed(vesselData):
 	lat = []
 	lon = []
+	speed = []
 	for row in vesselData:
 		lat.append(row[3])
 		lon.append(row[4])
-	return lat, lon
+		speed.append(row[1])
+	return lat, lon, speed
+
+def get_trajectories(lat, lon, speed):
+	index = 0
+	trajectories = []
+	start = 0
+	
+	while(index < len(lat)-1):
+		index = start+5
+		trajectoryLat = lat[start:index]
+		trajectoryLon = lon[start:index]
+		speedTrajectory = speed[start:index]
+		lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
+		rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
+		
+		while(rmse < 0.00009 and index < len(lat)-1):
+			index = index +1
+			trajectoryLat.append(lat[index])
+			trajectoryLon.append(lon[index])
+			speedTrajectory.append(speed[index])
+			lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
+			rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
+
+		trajectories.append([trajectoryLat, trajectoryLon, speedTrajectory])
+		start = index + 1
+	
+	return trajectories
+
+def compute_vector(trajectory):
+	x1 = trajectory[0][0]
+	y1 = trajectory[1][0]
+	x2 = trajectory[0][len(trajectory[1])-1]
+	y2 = trajectory[1][len(trajectory[1])-1]
+	return [ x2-x1 , y2 - y1]
+
+def compute_avg_speed(trajectory):
+	return np.average(trajectory[2])
+
+def compute_features(trajectories):
+	vectors = []
+	avgSpeeds =[]
+	trajectoriesStartPosition = []
+	for trajectory in trajectories:
+		vectors.append(compute_vector(trajectory))
+		avgSpeeds.append(compute_avg_speed(trajectory))
+		trajectoriesStartPosition.append((trajectory[0][0], trajectory[1][0]))
+	return trajectoriesStartPosition, vectors, avgSpeeds
+	
+
+def write_trajectory(trajectory, filePath):
+	trajectory =  trajectory[:2]
+	with open(filePath, 'a') as fp:
+		fp.write("y x\n")
+		for i in range(len(trajectory[0])-1):
+			fp.write(str(trajectory[0][i])+ ' '+ str(trajectory[1][i])+'\n' )
 
 ###############MAIN##################
 
@@ -126,36 +179,17 @@ vessels = build_vessels_data(allCleanData)
 # print(vessels.keys())
 # print(len(vessels[list(vessels.keys())[8]]))
 
-lat, lon = get_lat_lon(vessels[316022934])
-#np.absolute()
-
-trajectoryLat = lat[:5]
-trajectoryLon = lon[:5]
-
-#print(type(trajectoryLat))
-#print(trajectoryLon)
-
+lat, lon, speed = get_lat_lon_speed(vessels[316022934])
+trajectories = get_trajectories(lat, lon, speed)
+trajectoriesStartPosition, vectors, avgSpeeds = compute_features(trajectories)
+#write_trajectory(trajectories[0], 'test.txt')
 """
-copt, ccov = curve_fit(curve, trajectoryLat, trajectoryLon)
-rmse = calculate_curve_rmse(trajectoryLat, trajectoryLon, copt)
+for i in range(len(trajectories)):
+	filePath = 'trajectory_'+str(i)+'.txt'
+	write_trajectory(trajectories[i], filePath)
 """
-lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
-rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
-print(rmse)
 
-index = 5
-
-
-while(rmse < 0.0001 and index < len(lat)-1): # 0.00009
-	index = index +1
-	trajectoryLat.append(lat[index])
-	trajectoryLon.append(lon[index])
-	lopt, lcov = curve_fit(line, np.array(trajectoryLat), np.array(trajectoryLon))
-	rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
-	print(index, rmse)
-	
-
-plt.plot(np.array(trajectoryLat), line(np.array(trajectoryLat), *lopt))
-plt.scatter(trajectoryLat, trajectoryLon)
-plt.show()
+#plt.plot(np.array(trajectoryLat), line(np.array(trajectoryLat), *lopt))
+#plt.scatter(trajectoryLat, trajectoryLon)
+#plt.show()
 
