@@ -162,10 +162,18 @@ def write_trajectory(trajectory, filePath):
 
 ###############MAIN##################
 
+if len(sys.argv) != 3:
+	sys.stderr.write("Usage: vader.py user password\n")
+	sys.exit(1)
+
+username = sys.argv[1]
+passwd = sys.argv[2]
+
+
 db = mysql.connector.connect(
   host="cidco.ca",
-  user="aisuser",
-  password="AisOuananiche314151!",
+  user= username,
+  password=passwd,
   database="ais"
 )
 
