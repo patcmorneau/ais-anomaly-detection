@@ -36,6 +36,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.ensemble import IsolationForest
+import sys
 
 def curve(x, a, b, c):
 	return a*np.log(x + b)+c
@@ -120,7 +121,7 @@ def get_trajectories(lat, lon, speed):
 			rmse = calculate_line_rmse(np.array(trajectoryLat), np.array(trajectoryLon), lopt)
 		
 			while(rmse < 0.00009 and index < len(lat)-1):
-				index = index +1
+				index +=1
 				trajectoryLat.append(lat[index])
 				trajectoryLon.append(lon[index])
 				speedTrajectory.append(speed[index])
@@ -157,7 +158,7 @@ def write_trajectory(trajectory, filePath):
 	trajectory =  trajectory[:2]
 	with open(filePath, 'a') as fp:
 		fp.write("y x\n")
-		for i in range(len(trajectory[0])-1):
+		for i in range(len(trajectory[0])):
 			fp.write(str(trajectory[0][i])+ ' '+ str(trajectory[1][i])+'\n' )
 
 ###############MAIN##################
@@ -188,22 +189,30 @@ vessels = build_vessels_data(allCleanData)
 # print(len(vessels))
 # print(vessels.keys())
 # print(len(vessels[list(vessels.keys())[8]]))
-"""
-lat, lon, speed = get_lat_lon_speed(vessels[232027158]) # 316022934
+
+lat, lon, speed = get_lat_lon_speed(vessels[255806168]) # 316022934
 trajectories = get_trajectories(lat, lon, speed)
-trajectoriesStartPosition, vectors, avgSpeeds = compute_features(trajectories)
-"""
-#write_trajectory(trajectories[0], 'test.txt')
+#trajectoriesStartPosition, vectors, avgSpeeds = compute_features(trajectories)
+
+
 """
 for i in range(len(trajectories)):
 	filePath = 'trajectory_'+str(i)+'.txt'
 	write_trajectory(trajectories[i], filePath)
 """
 
-#plt.plot(np.array(trajectoryLat), line(np.array(trajectoryLat), *lopt))
-#plt.scatter(trajectoryLat, trajectoryLon)
-#plt.show()
 
+
+
+lopt, lcov = curve_fit(curve, np.array(lon), np.array(lat))
+lineRMSE = calculate_curve_rmse(np.array(lon), np.array(lat), lopt)
+print(lineRMSE)
+plt.plot(np.array(lon), line(np.array(lon), *lopt))
+plt.scatter(lon, lat)
+plt.show()
+
+
+"""
 features = []
 for vessel in vessels:
 	if len(vessels[vessel]) > 5:
@@ -229,9 +238,6 @@ for i in range(len(features)):
 	elif preds[i] == -1:
 		anomalies.append(features[i])
 
-#write_points_2_file(valids, "valid.txt")
-#write_points_2_file(anomalies, "anomalies.txt")
-
 
 validXs = []
 validYs = []
@@ -249,4 +255,16 @@ for point in anomalies:
 plt.scatter(validXs, validYs, c="green")
 plt.scatter(anomalieXs, anomalieYs, c="red")
 plt.show()
+"""
 
+"""
+nbPointsPerVessel = {}
+for vessel in vessels:
+	nbPointsPerVessel[vessel] = len(vessels[vessel])
+	
+for vessel in nbPointsPerVessel:
+	print(vessel, nbPointsPerVessel[vessel])
+"""
+
+
+# 255806168	

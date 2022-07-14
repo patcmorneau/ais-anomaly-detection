@@ -23,6 +23,8 @@ from sklearn.ensemble import IsolationForest
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+import sys
+import datetime
 
 
 def build_training_data(dbData):
@@ -33,14 +35,16 @@ def build_training_data(dbData):
 		trainingData.append(features)
 	return trainingData	
 
-def check_4_new_data(oldNbPoints):
+def new_data(cursor, oldNbPoints):
 	cursor.execute("SELECT * FROM ais.clean_data")
-	allCleanData = cursor.fetchall()
-	if len(allCleanData > oldNbPoints):
-		return true, (allCleanData - oldNbPoints)
+	newCleanData = cursor.fetchall()
+	print("new_data :",len(newCleanData))
+	
+	if len(newCleanData) > oldNbPoints:
+		return newCleanData[oldNbPoints:]
 	else:
-		return false, 0
-
+		return []
+	
 def get_points(dbData):
 	points = []
 	for row in dbData:
@@ -53,6 +57,21 @@ def write_points_2_file(points, outfilePath):
 		fp.write("x y\n")
 		for point in points:
 			fp.write(str(point[1])+ " "+ str(point[0])+"\n")
+
+def process_predictions(preds, points):
+	valids = []
+	anomalies = []
+	for i in range(len(points)):
+		if preds[i] == 1:
+			valids.append(points[i])
+		elif preds[i] == -1:
+			anomalies.append(points[i])
+	
+	tday = datetime.date.today()
+	time = datetime.time.now()
+	
+	write_points_2_file(valids, "valid_{}_{}_{}.txt".format(tday, time.hour, time.minute ))
+	write_points_2_file(anomalies, "anomalies_{}_{}_{}.txt".format(tday, time.hour, time.minute ))
 	
 ################MAIN############
 
@@ -63,10 +82,9 @@ if len(sys.argv) != 3:
 username = sys.argv[1]
 passwd = sys.argv[2]
 
-
 db = mysql.connector.connect(
   host="cidco.ca",
-  user= username,
+  user=username,
   password=passwd,
   database="ais"
 )
@@ -83,7 +101,7 @@ points = get_points(allCleanData)
 
 
 nbPoints = len(allCleanData)
-
+"""
 #print(trainingData)
 
 clf = IsolationForest()
@@ -99,8 +117,8 @@ for i in range(len(points)):
 	elif preds[i] == -1:
 		anomalies.append(points[i])
 
-write_points_2_file(valids, "valid.txt")
-write_points_2_file(anomalies, "anomalies.txt")
+#write_points_2_file(valids, "valid.txt")
+#write_points_2_file(anomalies, "anomalies.txt")
 
 
 validXs = []
@@ -119,14 +137,16 @@ for point in anomalies:
 plt.scatter(validXs, validYs, c="green")
 plt.scatter(anomalieXs, anomalieYs, c="red")
 plt.show()
+"""
 
 
-# TODO
-"""
-while(true):
-	newData, nbNewPoints = check_4_new_data(nbPoints)
-	if(newData):
-		clf.predict(newPoints)
-	
-	time.sleep(900) # every 15 min
-"""
+while(True):
+	newData = new_data(cursor, nbPoints)
+	if(len(newData) > 0):
+		print("new data")
+		points = get_points(newData)
+		preds = clf.predict(newData)
+		process_predictions(preds, points)
+		nbPoints += len(newData)
+	time.sleep(7200) # every 2h min
+

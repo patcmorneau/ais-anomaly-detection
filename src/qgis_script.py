@@ -1,5 +1,5 @@
 
-# in gis python console copy this script to import all files
+# in Qgis python console copy this script to import all files
 
 import glob, os
 
