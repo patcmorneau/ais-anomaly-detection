@@ -26,6 +26,19 @@ import matplotlib.pyplot as plt
 import sys
 import datetime
 
+def pull_data(username, passwd):
+	db = mysql.connector.connect(
+	  host="cidco.ca",
+	  user=username,
+	  password=passwd,
+	  database="ais"
+	)
+
+	cursor = db.cursor()
+
+	cursor.execute("SELECT * FROM ais.clean_data")
+	
+	return cursor.fetchall()
 
 def build_training_data(dbData):
 	trainingData = []
@@ -35,15 +48,13 @@ def build_training_data(dbData):
 		trainingData.append(features)
 	return trainingData	
 
-def new_data(cursor, oldNbPoints):
-	cursor.execute("SELECT * FROM ais.clean_data")
-	newCleanData = cursor.fetchall()
-	print("new_data :",len(newCleanData))
+def new_data(newNbPoints, oldNbPoints):
+	print("new_data :",newNbPoints)
 	
-	if len(newCleanData) > oldNbPoints:
-		return newCleanData[oldNbPoints:]
+	if newNbPoints > oldNbPoints:
+		return True
 	else:
-		return []
+		return False
 	
 def get_points(dbData):
 	points = []
@@ -82,25 +93,14 @@ if len(sys.argv) != 3:
 username = sys.argv[1]
 passwd = sys.argv[2]
 
-db = mysql.connector.connect(
-  host="cidco.ca",
-  user=username,
-  password=passwd,
-  database="ais"
-)
+dbData = pull_data(username, passwd)
 
-cursor = db.cursor()
+trainingData = build_training_data(dbData)
 
-cursor.execute("SELECT * FROM ais.clean_data")
-
-allCleanData = cursor.fetchall()
-
-trainingData = build_training_data(allCleanData)
-
-points = get_points(allCleanData)
+points = get_points(dbData)
 
 
-nbPoints = len(allCleanData)
+nbPoints = len(dbData)
 """
 #print(trainingData)
 
@@ -141,12 +141,14 @@ plt.show()
 
 
 while(True):
-	newData = new_data(cursor, nbPoints)
-	if(len(newData) > 0):
+	dbData = pull_data(username, passwd)
+	newNbPoints = len(dbData)
+	if(new_data(newNbPoints, nbPoints)):
 		print("new data")
+		newData = dbData[nbPoints:]
 		points = get_points(newData)
 		preds = clf.predict(newData)
 		process_predictions(preds, points)
-		nbPoints += len(newData)
-	time.sleep(7200) # every 2h min
+		nbPoints = newNbPoints
+	time.sleep(900) # every 15 min
 

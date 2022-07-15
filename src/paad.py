@@ -36,11 +36,19 @@ import matplotlib.pyplot as plt
 import sys
 import datetime
 import random
+from sklearn import mixture
+from sklearn.cluster import KMeans
+
+def get_points(dbData):
+	points = []
+	for row in dbData:
+		point = [float(x) for x in row[4:6]]
+		points.append(point)
+	return points
 
 def build_data_struct(dbData):
 	data = []
 	for row in dbData:
-		#print(row[2:])
 		features = [float(x) for x in row[2:]]
 		data.append(features)
 	return data
@@ -48,58 +56,48 @@ def build_data_struct(dbData):
 def split_data(data):
 	lat,lon,speed,course,heading = [],[],[],[],[]
 	for row in data:
-		#print(row)
 		speed.append(row[0])
 		course.append(row[1])
 		lat.append(row[2])
 		lon.append(row[3])
 		heading.append(row[4])
-		#break;
 	return speed,course,lat,lon,heading
 
-def compute_areas(lat, lon):
-	lat.sort()
-	lon.sort()
-	latMin = lat[0]
-	lonMin = lon[0]
-	latMax = lat[len(lat)-1]
-	lonMax = lon[len(lon)-1]
-	middleLat = (latMax-latMin)/2 + latMin
-	middleLon = (lonMax-lonMin)/2 + lonMin
-	return [[[latMax, lonMin],[middleLat, middleLon]],
-		 	[[middleLat, lonMin],[latMin, middleLon]],
-		 	[[latMax, middleLon],[middleLat, lonMax]],
-		 	[[middleLat, middleLon],[latMin, lonMax]]]
-
-def point_is_in_area(point, area):
-	if point[0] <= area[0][0] and point[0] >= area[1][0] and point[1] >= area[0][1] and point[1] <= area[1][1]:
-		return True
-	else:
-		return False
-"""		
-area = [[48.766898, -68.978717], [48.611174, -68.66099249999999]]
-point = [48.65, -68.7]
-print(point_is_in_area(point, area))
-"""
 
 def gen_anomalies(nb_anomalies, means, meanErrors):
 	n = 0
 	anomalies = []
 	while( n < nb_anomalies):
 		n+=1
-		speedAnomaly = means[0] + random.uniform(meanErrors[0]*2, meanErrors[0]*3)
-		courseAnomaly = means[1] + random.uniform(meanErrors[1]*2, meanErrors[0]*3)
+		speedAnomaly = means[0] + random.uniform(meanErrors[0]*2, meanErrors[0]*5)
+		courseAnomaly = means[1] + random.uniform(meanErrors[1]*2, meanErrors[0]*5)
 		latAnomaly = means[2] + random.uniform(meanErrors[2]/10, meanErrors[0]/5)
 		lonAnomaly = means[3] + random.uniform(meanErrors[3]/10, meanErrors[0]/5)
-		headingAnomaly = means[4] + random.uniform(meanErrors[4]*2, meanErrors[0]*3)
+		headingAnomaly = means[4] + random.uniform(meanErrors[4]*2, meanErrors[0]*5)
 		anomalies.append([speedAnomaly, courseAnomaly, latAnomaly, lonAnomaly, headingAnomaly])
 	return anomalies
 
 def write_points_2_file(points, outfilePath):
-	with open(outfilePath, 'a') as fp:
-		fp.write("x y\n")
+	with open(outfilePath, 'w') as fp:
+		fp.write("x y speed course heading\n")
 		for point in points:
-			fp.write(str(point[1])+ " "+ str(point[0])+"\n")
+			fp.write(str(point[3])+ " "+ str(point[2])+" "+ str(point[0])+" "+ str(point[1])+" "+ str(point[4])+ "\n")
+
+def find_best_nb_cluster(data, maxClusters):
+	n = 4
+	bic = []
+	lowest_bic = np.infty
+	while n <= maxClusters :
+		model = mixture.GaussianMixture(n, covariance_type = "full")
+		n += 1
+		model.fit(np.array(data))
+		performance = model.bic(np.array(data))
+		bic.append(performance)
+		if performance < lowest_bic:
+			lowest_bic = performance
+		else:
+			break;
+	return 4 + bic.index(min(bic))
 
 ################MAIN############
 
@@ -125,64 +123,48 @@ allCleanData = cursor.fetchall()
 
 data = build_data_struct(allCleanData)
 
-speed,course,lat,lon,heading = split_data(data)
+points = get_points(data)
 
-#print(len(lat), len(data))
+nbCluster = find_best_nb_cluster(points, 50)
 
-areas = compute_areas(lat, lon)
-#print(areas)
-"""
+print("nb cluster: ", nbCluster)
 
-latMin = areas[0][1][1]
-lonMin = areas[0]
-latMax = areas[0]
-lonMax = areas[0]
+kmeans = KMeans(n_clusters=nbCluster)
+kmeans.fit(points)
 
-print()
-"""
+#print(kmeans.labels_)
 
-area1 = []
-area2 = []
-area3 = []
-area4 = []
-for row in data:
-	point = [row[2],row[3]]
-	for i in range(len(areas)):
+pointsPerCluster = {}
+for i in range(nbCluster):
+	pointsPerCluster[i] = []
 
-		if(point_is_in_area(point, areas[i])):
-			if i == 0:
-				area1.append(row)
-			elif i == 1:
-				area2.append(row)
-			elif i == 2:
-				area3.append(row)
-			elif i == 3:
-				area4.append(row)
-
-if (len(area1)+len(area2)+len(area3)+len(area4)) == len(data):
-	print("ok")
+#print(pointsPerCluster.keys())
 
 
-rowsInAreas = [area1,area2,area3,area4]
+for i in range(len(kmeans.labels_)):
+	pointsPerCluster[kmeans.labels_[i]].append(data[i])
+	
 
+#print(pointsPerCluster)
 anomaliesData = []
-for areaData in rowsInAreas:
-	if len(areaData) > 0:
-		speed,course,lat,lon,heading = split_data(areaData)
-		mSpeed = np.mean(speed)
-		meSpeed = np.mean(abs(mSpeed - speed))
-		mCourse = np.mean(course)
-		meCourse = np.mean(abs(mCourse -course))
-		mLat = np.mean(lat)
-		meLat = np.mean(abs(mLat -lat))
-		mLon = np.mean(lon)
-		meLon = np.mean(abs(mLon -lon))
-		mHeading = np.mean(heading)
-		meHeading = np.mean(abs(mHeading -heading))
-		means = [mSpeed, mCourse, mLat, mLon, mHeading]
-		meanErrors = [meSpeed, meCourse, meLat, meLon, meHeading]
-		anomaliesData+= gen_anomalies(len(speed)/2, means, meanErrors)
-#print(len(anomaliesData), len(data)/4)
+for cluster in pointsPerCluster:
+	write_points_2_file(pointsPerCluster[cluster], "cluster_{}.txt".format(cluster))
+	speed,course,lat,lon,heading = split_data(pointsPerCluster[cluster])
+	mSpeed = np.mean(speed)
+	meSpeed = np.mean(abs(mSpeed - speed))
+	mCourse = np.mean(course)
+	meCourse = np.mean(abs(mCourse -course))
+	mLat = np.mean(lat)
+	meLat = np.mean(abs(mLat -lat))
+	mLon = np.mean(lon)
+	meLon = np.mean(abs(mLon -lon))
+	mHeading = np.mean(heading)
+	meHeading = np.mean(abs(mHeading -heading))
+	means = [mSpeed, mCourse, mLat, mLon, mHeading]
+	meanErrors = [meSpeed, meCourse, meLat, meLon, meHeading]
+	anomaliesData+= gen_anomalies(len(speed)/2, means, meanErrors)
+	
+print(len(anomaliesData), len(data)/2)
 
 
 trainingData = data + anomaliesData
@@ -198,9 +180,9 @@ valids = []
 anomalies = []
 for i in range(len(trainingData[:len(data)-1])):
 	if preds[i] == 1:
-		valids.append(trainingData[i][2:4])
+		valids.append(trainingData[i])
 	elif preds[i] == -1:
-		anomalies.append(trainingData[i][2:4])
+		anomalies.append(trainingData[i])
 #print(valids, anomalies)
 write_points_2_file(valids, "true_valid.txt")
 write_points_2_file(anomalies, "true_anomalies.txt")
@@ -210,9 +192,9 @@ valids = []
 anomalies = []
 for i in range(len(trainingData[len(data):])):
 	if preds[i] == 1:
-		valids.append(trainingData[i][2:4])
+		valids.append(trainingData[i])
 	elif preds[i] == -1:
-		anomalies.append(trainingData[i][2:4])
+		anomalies.append(trainingData[i])
 #print(valids, anomalies)
 write_points_2_file(valids, "generated_valid.txt")
 write_points_2_file(anomalies, "generated_anomalies.txt")
