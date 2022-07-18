@@ -101,13 +101,13 @@ points = get_points(dbData)
 
 
 nbPoints = len(dbData)
-"""
+
 #print(trainingData)
 
 clf = IsolationForest()
 clf.fit(np.array(trainingData))
-preds = clf.predict(trainingData)
-
+#preds = clf.predict(trainingData)
+"""
 
 valids = []
 anomalies = []
