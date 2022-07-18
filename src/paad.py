@@ -39,39 +39,42 @@ import random
 from sklearn import mixture
 from sklearn.cluster import KMeans
 
-def get_points(dbData):
+def get_points(data):
 	points = []
-	for row in dbData:
-		point = [float(x) for x in row[2:4]]
+	for row in data:
+		point = [float(x) for x in row[3:5]]
 		points.append(point)
 	return points
 	
 def get_speed_lat_lon(data):
 	sll = []
 	for row in data:
-		point = [row[0], row[2], row[3]]
+		point = [row[1], row[3], row[4]]
 		sll.append(point)
 	return sll
 
 def build_data_struct(dbData):
 	data = []
+	pointID = 0
 	for row in dbData:
 		features = [float(x) for x in row[2:]]
+		features.insert(0, pointID)
 		data.append(features)
+		pointID += 1
 	return data
 
 def split_data(data):
 	lat,lon,speed,course,heading = [],[],[],[],[]
 	for row in data:
-		speed.append(row[0])
-		course.append(row[1])
-		lat.append(row[2])
-		lon.append(row[3])
-		heading.append(row[4])
+		speed.append(row[1])
+		course.append(row[2])
+		lat.append(row[3])
+		lon.append(row[4])
+		heading.append(row[5])
 	return speed,course,lat,lon,heading
 
 
-def gen_cluster_anomalies(nb_anomalies, minMaxs, means, meanErrors):
+def gen_cluster_anomalies(nb_anomalies, minMaxs, means, meanErrors, fakeID):
 	n = 0
 	anomalies = []
 	
@@ -86,20 +89,21 @@ def gen_cluster_anomalies(nb_anomalies, minMaxs, means, meanErrors):
 
 	while( n < nb_anomalies):
 		n+=1
-		speedAnomaly = random.uniform(means[0], minMaxs[0][1]) + meanErrors[0]*3
+		fakeID += 1
+		speedAnomaly = random.uniform(means[0], minMaxs[0][1]) + means[0]/2
 		courseAnomaly = random.uniform(mCourse+90, mCourse+180)
 		latAnomaly = random.uniform(minMaxs[2][0], minMaxs[2][1])
 		lonAnomaly = random.uniform(minMaxs[3][0], minMaxs[3][1])
 		headingAnomaly = random.uniform(mHeading+90, mHeading+180)
-		anomalies.append([speedAnomaly, courseAnomaly, latAnomaly, lonAnomaly, headingAnomaly])
+		anomalies.append([fakeID, speedAnomaly, courseAnomaly, latAnomaly, lonAnomaly, headingAnomaly])
 		
 	return anomalies
 
 def write_points_2_file(points, outfilePath):
 	with open(outfilePath, 'w') as fp:
-		fp.write("x y speed course heading\n")
+		fp.write("id x y speed course heading\n")
 		for point in points:
-			fp.write(str(point[3])+ " "+ str(point[2])+" "+ str(point[0])+" "+ str(point[1])+" "+ str(point[4])+ "\n")
+			fp.write(str(point[0])+ " "+str(point[4])+ " "+ str(point[3])+" "+ str(point[1])+" "+ str(point[2])+" "+ str(point[5])+ "\n")
 
 def find_best_nb_cluster(data, maxClusters):
 	n = 4
@@ -121,10 +125,10 @@ def get_min_max(array):
 	return [np.min(array), np.max(array)]
 
 
-def gen_anomalies(pointsPerCluster):
+def gen_anomalies(pointsPerCluster, fakeID):
 	anomaliesData = []
 	for cluster in pointsPerCluster:
-		write_points_2_file(pointsPerCluster[cluster], "/media/sf_linux_virt_share/anomaly/cluster_{}.txt".format(cluster))
+		#write_points_2_file(pointsPerCluster[cluster], "/media/sf_linux_virt_share/anomaly/cluster_{}.txt".format(cluster))
 		speed,course,lat,lon,heading = split_data(pointsPerCluster[cluster])
 
 		speedMinMax = get_min_max(speed)
@@ -152,8 +156,27 @@ def gen_anomalies(pointsPerCluster):
 		minMaxMaxs = [speedMinMax, courseMinMax, latMinMax, lonMinMax, headingMinMax]
 		meanErrors = [meSpeed, meCourse, meLat, meLon, meHeading]
 		
-		anomaliesData+= gen_cluster_anomalies(len(speed)/10, minMaxMaxs, means, meanErrors)
+		anomaliesData += gen_cluster_anomalies(len(speed)/10, minMaxMaxs, means, meanErrors, fakeID)
+		fakeID += len(anomalies)+1
 	return anomaliesData
+
+def anomalies_in_cluster(clusterPoints):
+	clf = IsolationForest()
+	clf.fit(np.array(clusterPoints))
+	return clf.predict(clusterPoints)
+	
+	
+def process_predictions(preds, data):
+	valids = []
+	anomalies = []
+	for i in range(len(data)):
+		if preds[i] == 1:
+			valids.append(data[i])
+		elif preds[i] == -1:
+			anomalies.append(data[i])
+	
+	return valids, anomalies
+	
 ################MAIN############
 
 if len(sys.argv) != 3:
@@ -177,6 +200,7 @@ cursor.execute("SELECT * FROM ais.clean_data")
 allCleanData = cursor.fetchall()
 
 data = build_data_struct(allCleanData)
+
 
 points = get_points(data)
 
@@ -202,38 +226,62 @@ for i in range(nbCluster):
 
 for i in range(len(kmeans.labels_)):
 	pointsPerCluster[kmeans.labels_[i]].append(data[i])
-	
 
-anomaliesData = gen_anomalies(pointsPerCluster)
+anomaliesPerCluster = []
+for cluster in pointsPerCluster:
+	preds = anomalies_in_cluster(pointsPerCluster[cluster])
+	valids, anomalies = process_predictions(preds, pointsPerCluster[cluster])
+	#write_points_2_file(valids, "/media/sf_linux_virt_share/anomaly/cluster_{}valids.txt".format(cluster))
+	#write_points_2_file(anomalies, "/media/sf_linux_virt_share/anomaly/cluster_{}anomalies.txt".format(cluster))
+	anomaliesPerCluster += anomalies
+
+
+
+fakeID = len(data)+1
+anomaliesData = gen_anomalies(pointsPerCluster, fakeID)
 trainingData = data + anomaliesData
+
+
 
 clf = IsolationForest()
 clf.fit(np.array(trainingData))
 preds = clf.predict(trainingData)
 
 
-valids = []
-anomalies = []
-for i in range(len(data)):
-	if preds[i] == 1:
-		valids.append(data[i])
-	elif preds[i] == -1:
-		anomalies.append(data[i])
-#print(valids, anomalies)
+valids, anomalies = process_predictions(preds, data)
+
 write_points_2_file(valids, "/media/sf_linux_virt_share/anomaly/true_valid.txt")
 write_points_2_file(anomalies, "/media/sf_linux_virt_share/anomaly/true_anomalies.txt")
 
 print("anomalies %: ", (len(anomalies) / len(data)) * 100)
 
+
+ids = np.array(anomalies)[:, 0]
+ids2 = np.array(anomaliesPerCluster)[:, 0]
+
+#print(ids, ids2)
+
+newlist = [x for x in ids if x in ids2]
+
+
+print("anomalies %: ", (len(newlist) / len(data)) * 100)
+
+anomaliesFinal = []
+for ID in newlist:
+	x = int(ID)
+	anomaliesFinal.append(data[x])
+	
+write_points_2_file(anomaliesFinal, "/media/sf_linux_virt_share/anomaly/anomaliesFinal.txt")
+"""
 valids = []
 anomalies = []
-for i in range(len(anomaliesData)):
+for i in range(len(data),len(trainingData)):
 	if preds[i] == 1:
-		valids.append(anomaliesData[i])
+		valids.append(trainingData[i])
 	elif preds[i] == -1:
-		anomalies.append(anomaliesData[i])
+		anomalies.append(trainingData[i])
 #print(valids, anomalies)
 write_points_2_file(valids, "/media/sf_linux_virt_share/anomaly/generated_valid.txt")
 write_points_2_file(anomalies, "/media/sf_linux_virt_share/anomaly/generated_anomalies.txt")
 
-
+"""
