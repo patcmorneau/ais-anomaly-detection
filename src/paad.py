@@ -38,6 +38,9 @@ import datetime
 import random
 from sklearn import mixture
 from sklearn.cluster import KMeans
+import pickle
+import logging
+
 
 def get_points(data):
 	points = []
@@ -179,6 +182,14 @@ if len(sys.argv) != 3:
 username = sys.argv[1]
 passwd = sys.argv[2]
 
+logging.basicConfig(filename="training-model_{}.log".format(datetime.date.today()),
+                    format='%(asctime)s %(message)s',
+                    filemode='w')
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+
+
 db = mysql.connector.connect(
   host="cidco.ca",
   user=username,
@@ -194,12 +205,16 @@ allCleanData = cursor.fetchall()
 
 data = build_data_struct(allCleanData)
 
+logger.info("model train on {} rows".format(len(data)))
 
 """ split the dataset in cluster by lat lon only """
 points = get_points(data)
 nbCluster = 8
 kmeans = KMeans(n_clusters=nbCluster)
 kmeans.fit(points)
+
+logger.info("Cluster number used: {}".format(nbCluster))
+
 
 pointsPerCluster = {}
 for i in range(nbCluster):
@@ -222,7 +237,7 @@ for cluster in pointsPerCluster:
 """ add anomalic data """
 fakeID = len(data)+1
 anomaliesData = gen_anomalies(pointsPerCluster, fakeID)
-trainingData = data + anomaliesData
+trainingData = data[1:] + anomaliesData[1:]
 
 
 """ perform anomaly detection on all the data including the generated data """
@@ -234,8 +249,8 @@ valids, anomalies = process_predictions(preds, data)
 write_points_2_file(valids, "/media/sf_linux_virt_share/anomaly/true_valid.txt")
 write_points_2_file(anomalies, "/media/sf_linux_virt_share/anomaly/true_anomalies.txt")
 
-print("anomalies %: ", (len(anomalies) / len(data)) * 100) # pourcentage of anomalies in all the real data
 
+logger.info("percentage of anomalies in data: {}".format((len(anomalies) / len(data)) * 100))
 
 """ if anomaly in cluster + anomaly in dataset -> probably an anomaly """
 ids = np.array(anomalies)[:, 0]
@@ -244,7 +259,7 @@ ids2 = np.array(anomaliesPerCluster)[:, 0]
 newlist = [x for x in ids if x in ids2]
 
 
-print("anomalies %: ", (len(newlist) / len(data)) * 100) 
+logger.info("percentage of anomalies in cluster AND in data: {}".format( (len(newlist) / len(data)) * 100))
 
 anomaliesFinal = []
 for ID in newlist:
@@ -257,7 +272,7 @@ write_points_2_file(anomaliesFinal, "/media/sf_linux_virt_share/anomaly/anomalie
 
 
 
-
+pickle.dump(clf,open("AIS_anomaly_detection_{}.model".format(datetime.date.today()),"wb"))
 
 """
 valids = []
