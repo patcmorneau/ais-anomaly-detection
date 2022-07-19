@@ -45,13 +45,6 @@ def get_points(data):
 		point = [float(x) for x in row[3:5]]
 		points.append(point)
 	return points
-	
-def get_speed_lat_lon(data):
-	sll = []
-	for row in data:
-		point = [row[1], row[3], row[4]]
-		sll.append(point)
-	return sll
 
 def build_data_struct(dbData):
 	data = []
@@ -77,24 +70,25 @@ def split_data(data):
 def gen_cluster_anomalies(nb_anomalies, minMaxs, means, meanErrors, fakeID):
 	n = 0
 	anomalies = []
+	anomaly = 0
 	
 	mCourse = means[1]
 	mHeading = means[4]
 	
 	if mCourse > 180:
-		mCourse -= 180
+		anomaly = -180
 	
 	if mHeading > 180:
-		mHeading -= 180
+		anomaly = -180
 
 	while( n < nb_anomalies):
 		n+=1
 		fakeID += 1
-		speedAnomaly = random.uniform(means[0], minMaxs[0][1]) + means[0]/2
-		courseAnomaly = random.uniform(mCourse+90, mCourse+180)
+		speedAnomaly = random.uniform(means[0], minMaxs[0][1]) + means[0]
+		courseAnomaly = random.uniform(mCourse+anomaly+90, mCourse+180+anomaly)
 		latAnomaly = random.uniform(minMaxs[2][0], minMaxs[2][1])
 		lonAnomaly = random.uniform(minMaxs[3][0], minMaxs[3][1])
-		headingAnomaly = random.uniform(mHeading+90, mHeading+180)
+		headingAnomaly = random.uniform(mHeading+90+anomaly, mHeading+180+anomaly)
 		anomalies.append([fakeID, speedAnomaly, courseAnomaly, latAnomaly, lonAnomaly, headingAnomaly])
 		
 	return anomalies
@@ -151,7 +145,6 @@ def gen_anomalies(pointsPerCluster, fakeID):
 		mHeading = np.mean(heading)
 		meHeading = np.mean(abs(mHeading -heading))
 		
-		#print(np.mean(speed), np.mean(course), np.mean(lat), np.mean(lon), np.mean(heading))
 		means = [mSpeed, mCourse, mLat, mLon, mHeading]
 		minMaxMaxs = [speedMinMax, courseMinMax, latMinMax, lonMinMax, headingMinMax]
 		meanErrors = [meSpeed, meCourse, meLat, meLon, meHeading]
@@ -202,31 +195,21 @@ allCleanData = cursor.fetchall()
 data = build_data_struct(allCleanData)
 
 
+""" split the dataset in cluster by lat lon only """
 points = get_points(data)
-
-#speedLatLon = get_speed_lat_lon(data)
-
-
-#nbCluster = find_best_nb_cluster(points, 50)
 nbCluster = 8
-
-#print("nb cluster: ", nbCluster)
-
 kmeans = KMeans(n_clusters=nbCluster)
 kmeans.fit(points)
-
-#print(kmeans.labels_)
 
 pointsPerCluster = {}
 for i in range(nbCluster):
 	pointsPerCluster[i] = []
 
-#print(pointsPerCluster.keys())
-
 
 for i in range(len(kmeans.labels_)):
 	pointsPerCluster[kmeans.labels_[i]].append(data[i])
 
+""" perform anomaly detection on each cluster individually """
 anomaliesPerCluster = []
 for cluster in pointsPerCluster:
 	preds = anomalies_in_cluster(pointsPerCluster[cluster])
@@ -236,42 +219,46 @@ for cluster in pointsPerCluster:
 	anomaliesPerCluster += anomalies
 
 
-
+""" add anomalic data """
 fakeID = len(data)+1
 anomaliesData = gen_anomalies(pointsPerCluster, fakeID)
 trainingData = data + anomaliesData
 
 
-
+""" perform anomaly detection on all the data including the generated data """
 clf = IsolationForest()
 clf.fit(np.array(trainingData))
 preds = clf.predict(trainingData)
-
-
 valids, anomalies = process_predictions(preds, data)
 
 write_points_2_file(valids, "/media/sf_linux_virt_share/anomaly/true_valid.txt")
 write_points_2_file(anomalies, "/media/sf_linux_virt_share/anomaly/true_anomalies.txt")
 
-print("anomalies %: ", (len(anomalies) / len(data)) * 100)
+print("anomalies %: ", (len(anomalies) / len(data)) * 100) # pourcentage of anomalies in all the real data
 
 
+""" if anomaly in cluster + anomaly in dataset -> probably an anomaly """
 ids = np.array(anomalies)[:, 0]
 ids2 = np.array(anomaliesPerCluster)[:, 0]
-
-#print(ids, ids2)
 
 newlist = [x for x in ids if x in ids2]
 
 
-print("anomalies %: ", (len(newlist) / len(data)) * 100)
+print("anomalies %: ", (len(newlist) / len(data)) * 100) 
 
 anomaliesFinal = []
 for ID in newlist:
 	x = int(ID)
 	anomaliesFinal.append(data[x])
 	
+
+
 write_points_2_file(anomaliesFinal, "/media/sf_linux_virt_share/anomaly/anomaliesFinal.txt")
+
+
+
+
+
 """
 valids = []
 anomalies = []

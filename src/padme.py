@@ -146,6 +146,7 @@ while(True):
 	if(new_data(newNbPoints, nbPoints)):
 		print("new data")
 		newData = dbData[nbPoints:]
+		newData = build_training_data(newData)
 		points = get_points(newData)
 		preds = clf.predict(newData)
 		process_predictions(preds, points)
